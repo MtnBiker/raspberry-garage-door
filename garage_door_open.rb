@@ -1,5 +1,7 @@
 #!/usr/bin/env ruby
 
+#  Need to run as superuser
+
 require 'wiringpi'
 require_relative 'lib/range_sensor_average_method.rb'
 require_relative 'lib/motion_detector_method'
@@ -9,7 +11,7 @@ def garage_open(gpio,pir,led_motion, period)
   # Maybe send an email anyway
   if motion(gpio,pir,led_motion, period) == 0 # garage is open and there is no movement
     # Send message
-    puts "Garage door is open and no one appears to be in the garage.\nWill check again in a minute"
+    puts "Garage door is open and no one appears to be in the garage. #{timeHMS()}\nWill check again in a minute"
     sleep(60)
     if motion(gpio,pir,led_motion, period) == 0
       # Send message
@@ -35,6 +37,10 @@ def motion(gpio,pir,led_motion, seconds)
   end # while
   return pirVal
 end
+
+def timeHMS # time in format HH:MM:SS
+  Time.now.strftime("%H:%M:%S")
+end
 ############## Initialize gpio and variables
 gpio = WiringPi::GPIO.new
 
@@ -48,6 +54,10 @@ pir        = 11 # feedback from motion detector
 led_motion = 6 # LED to be lit for a short time after motion detected
 period     = 0.5 # second. Check for this long then check out. Report out if any motion during this period
 
+# Overhead lights
+led_lights = 8 # just an indicator
+relay_lights = 9 # relay to turn lights on and off
+
 ###### Initialize pins for proximity  
 gpio.mode(pir, INPUT) # feedback from motion detector. 
 gpio.mode(led_prox, OUTPUT) # LED to be lit for a short time after motion detected
@@ -59,9 +69,28 @@ gpio.mode(led_motion, OUTPUT) # led is just an indicator. Not required for ultra
 
  
 
-######start the indefinite loop
+######
+
+# start the indefinite loop  
+#   #  Start a thread to Check for motion to turn on lights. If motion leave on for a while (maybe 30s), then check again for motion
+Thread.new do
+  loop do
+    if motion(gpio,pir,led_motion, period) == 1
+      gpio.write(relay_lights, 1) # Turn on lights
+      gpio.write(led_lights, 1) # Turn on indicator light (not the same as motion indicator)
+      puts "Motion detected, overhead lights on for 30 seconds.  #{timeHMS()}"
+      # Turn on LED to indicate lights should be on
+      sleep(30) # after turning on lights, leave them on 30 seconds
+    else # turn off lights
+      gpio.write(relay_lights, 0) # Turn off lights
+      gpio.write(led_lights, 0) # Turn off LED indicator for lights
+      # puts "No motion detected, overhead lights off.  #{timeHMS()}"  # get report several times per second
+    end # if motion
+  end # loop do for turning on the lights
+end # Thread.new
+
 loop do
-  # Check if door is open, if open do stuff; otherwise check if motion to turn light on (eventually)
+  # Check if door is open, if open do stuff;
 
   gpio.write(led_prox, 0) # LED off to start
   gpio.write(led_motion, 0) # LED off to start
@@ -76,10 +105,5 @@ loop do
   else
     puts "\nGarage Door Is Closed\n"
   end
-  
-  #  Check for motion to turn on lights
+end # loop do for garage door
 
-
-
-
-end # loop do
